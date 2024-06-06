@@ -62,6 +62,25 @@ app.get('/viewdetails/:id', async(req, res)=>{
      res.send(result)
  })
 
+ app.get('/user', async(req, res)=>{
+   const result= await UserCollection.find().toArray();
+   res.send(result)
+ })
+
+// API endpoint to fetch worksheets by email
+app.get('/worksheets/:email', async (req, res) => {
+  try {
+    const email = req.params.email;
+    console.log(email)
+    const query = {email: email}
+    const worksheets = await WorkSheetCollection.find(query).toArray();
+    res.json(worksheets);
+  } catch (error) {
+    console.error('Error fetching worksheets:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
  
 
  app.get('/users/:email', async (req, res) => {
