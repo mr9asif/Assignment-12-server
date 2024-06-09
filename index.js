@@ -1,27 +1,23 @@
 const express = require('express');
-require('dotenv').config()
+require('dotenv').config();
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-var cookieParser = require('cookie-parser')
+const cookieParser = require('cookie-parser');
+
 const port = process.env.PORT || 4000;
 const app = express();
 
-app.get('/', (req, res)=>{
-    res.send('server running')
-})
-
-// middle ware
 app.use(cors({
-    origin: ['http://localhost:5174', 'http://localhost:5173'], 
-    credentials: true 
-  }));
+  origin: ['http://localhost:5174', 'http://localhost:5173'],
+  credentials: true
+}));
 app.use(express.json());
-app.use(cookieParser())
+app.use(cookieParser());
 
-// mongodb start
+// MongoDB Connection
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.p7hqbnv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -30,325 +26,305 @@ const client = new MongoClient(uri, {
   }
 });
 
+const cookieOption = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict'
+};
+
+// Middleware for Token Verification
+const VerifyToken = async (req, res, next) => {
+  const token = req.cookies?.Token;
+  if (!token) {
+    return res.status(401).send({ message: 'Unauthorized' });
+  }
+  jwt.verify(token, process.env.ACCESS_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "Forbidden" });
+    }
+    req.user = decoded;
+    next();
+  });
+};
+
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
-    // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
+    await client.connect();
 
-//    database Collection
     const ServiceCollection = client.db('EmployeeManagement').collection('Services');
     const UserCollection = client.db('EmployeeManagement').collection('Users');
     const WorkSheetCollection = client.db('EmployeeManagement').collection('Work');
     const PaymentCollection = client.db('EmployeeManagement').collection('Payment');
+    const messageCollection = client.db('EmployeeManagement').collection('message');
 
-app.get('/services', async(req, res)=>{
-    const result = await ServiceCollection.find().toArray();
-    res.send(result)
-})
+    // Routes
+    app.get('/', (req, res) => {
+      res.send('Server running');
+    });
 
-app.get('/employee', async(req, res)=>{
-   const result = await UserCollection.find().toArray();
-   res.send(result)
-})
+    app.get('/services', async (req, res) => {
+      const result = await ServiceCollection.find().toArray();
+      res.send(result);
+    });
 
-app.get('/viewdetails/:id', async(req, res)=>{
-    const id = req.params.id;
-    const query = {_id : new ObjectId(id)};
-    
-     const result = await ServiceCollection.findOne(query);
-   
-    console.log(result)
-     res.send(result)
- })
+    app.get('/employee', VerifyToken, async (req, res) => {
+      const result = await UserCollection.find().toArray();
+      res.send(result);
+    });
 
-//  payment
-app.get('/payments', async(req, res)=>{
-  const result = await PaymentCollection.find().toArray();
-  res.send(result)
-})
+    app.get('/viewdetails/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await ServiceCollection.findOne(query);
+      res.send(result);
+    });
 
- app.get('/user', async(req, res)=>{
-   const result= await UserCollection.find().toArray();
-   res.send(result)
- })
+    // Payments
+    app.get('/payments', async (req, res) => {
+      const result = await PaymentCollection.find().toArray();
+      res.send(result);
+    });
 
-// API endpoint to fetch worksheets by email
-app.get('/worksheets/:email', async (req, res) => {
-  try {
-    const email = req.params.email;
-    console.log(email)
-    const query = {email: email}
-    const worksheets = await WorkSheetCollection.find(query).toArray();
-    res.json(worksheets);
-  } catch (error) {
-    console.error('Error fetching worksheets:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+    app.get('/user', async (req, res) => {
+      const result = await UserCollection.find().toArray();
+      res.send(result);
+    });
 
- 
+    app.get('/worksheets/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+        const query = { email: email };
+        const worksheets = await WorkSheetCollection.find(query).toArray();
+        res.json(worksheets);
+      } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    });
 
- app.get('/users/:email', async (req, res) => {
-  try {
-    const email = req.params.email;
-    const user = await UserCollection.findOne({ email });
-    if (user) {
-      res.send(user);
-    } else {
-      res.status(404).send({ message: 'User not found' });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).send({ message: 'Internal Server Error' });
-  }
-});
+    app.get('/users/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+        const user = await UserCollection.findOne({ email });
+        if (user) {
+          res.send(user);
+        } else {
+          res.status(404).send({ message: 'User not found' });
+        }
+      } catch (error) {
+        res.status(500).send({ message: 'Internal Server Error' });
+      }
+    });
 
-// PATCH endpoint to toggle the verified status of an employee
-// PATCH endpoint to update an employee's information
-app.patch('/employee/:id', async (req, res) => {
-  const id = req.params.id; // Parse the id parameter from the request URL
-
-  try {
-    // Validate if the id is a valid ObjectId
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid ObjectId provided' });
-    }
-
-    const { isVerified } = req.body; // Extract the isVerified field from the request body
-
-    // Update the employee's isVerified status in the database
-    const result = await UserCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { isVerified } }
-    );
-
-    if (result.modifiedCount === 1) {
-      // If the document was updated successfully
-      res.status(200).json({ message: 'Employee information updated successfully' });
-    } else {
-      // If no document was modified (employee not found)
-      res.status(404).json({ message: 'Employee not found or no changes were made' });
-    }
-  } catch (error) {
-    // If an error occurred during the update operation
-    console.error('Error updating employee information:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
-  }
-});
-
-
-// pathch
-// Example Express.js endpoint
-app.patch('/update-employee/:id', async (req, res) => {
-  const employeeId = req.params.id;
-  const { role } = req.body; // This will be { role: 'HR' }
-
-  try {
-      // Convert employeeId to ObjectId if necessary
-      const objectId = new ObjectId(employeeId);
-
+    app.patch('/employee/:id', async (req, res) => {
+      const id = req.params.id;
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ message: 'Invalid ObjectId provided' });
+      }
+      const { isVerified } = req.body;
       const result = await UserCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { isVerified } }
+      );
+      if (result.modifiedCount === 1) {
+        res.status(200).json({ message: 'Employee information updated successfully' });
+      } else {
+        res.status(404).json({ message: 'Employee not found or no changes were made' });
+      }
+    });
+
+    app.patch('/update-employee/:id', async (req, res) => {
+      const employeeId = req.params.id;
+      const { role } = req.body;
+      try {
+        const objectId = new ObjectId(employeeId);
+        const result = await UserCollection.updateOne(
           { _id: objectId },
           { $set: { role } }
-      );
-
-      console.log('Update result:', result);
-
-      if (result.modifiedCount === 0) {
+        );
+        if (result.modifiedCount === 0) {
           return res.status(404).json({ error: 'Employee not found or role already updated' });
+        }
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({ error: 'Failed to update employee' });
       }
+    });
 
-      res.json({ success: true });
-  } catch (error) {
-      console.error('Error updating employee:', error);
-      res.status(500).json({ error: 'Failed to update employee' });
-  }
-});
-
-// pathc fire
-
-app.patch('/fire-employee/:id', async (req, res) => {
-  const employeeId = req.params.id;
-
-  try {
-      // Convert employeeId to ObjectId if necessary
-      const objectId = new ObjectId(employeeId);
-
-      const result = await UserCollection.updateOne(
+    app.patch('/fire-employee/:id', async (req, res) => {
+      const employeeId = req.params.id;
+      try {
+        const objectId = new ObjectId(employeeId);
+        const result = await UserCollection.updateOne(
           { _id: objectId },
           { $set: { fired: true } }
-      );
-
-      console.log('Fire result:', result);
-
-      if (result.modifiedCount === 0) {
+        );
+        if (result.modifiedCount === 0) {
           return res.status(404).json({ error: 'Employee not found or already fired' });
+        }
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({ error: 'Failed to fire employee' });
       }
+    });
 
-      res.json({ success: true });
-  } catch (error) {
-      console.error('Error firing employee:', error);
-      res.status(500).json({ error: 'Failed to fire employee' });
-  }
-})
+    app.get('/employee/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await UserCollection.findOne(query);
+      res.send(result);
+    });
 
-app.get('/employee/:id', async(req, res)=>{
-  const id = req.params.id;
-  const query = {_id: new ObjectId(id)}
-  const result = await UserCollection.findOne(query);
-  res.send(result)
-})
-
-// employee details
-app.get('/api/employees/:slug', async (req, res) => {
-  try {
-    const employee = await UserCollection.findOne({ email: req.params.slug });
-    if (employee) {
-      res.json(employee);
-    } else {
-      res.status(404).json({ message: 'Employee not found' });
-    }
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// chart
-app.get('/employee/:id', async (req, res) => {
-  const employeeId = req.params.id;
-  try {
-  
-     
-      const employee = await UserCollection.findOne({ _id: new ObjectId(employeeId) });
-
-      if (!employee) {
-          return res.status(404).send('Employee not found');
+    app.get('/api/employees/:slug',  async (req, res) => {
+      try {
+        const employee = await UserCollection.findOne({ email: req.params.slug });
+        if (employee) {
+          res.json(employee);
+        } else {
+          res.status(404).json({ message: 'Employee not found' });
+        }
+      } catch (error) {
+        res.status(500).json({ message: error.message });
       }
+    });
 
-      res.json(employee);
-  } finally {
-      await client.close();
-  }
-});
+    app.get('/payments/:bank', async (req, res) => {
+      const id = req.params.bank;
+      const query = { bank_account: id };
+      const result = await PaymentCollection.find(query).toArray();
+      res.send(result);
+    });
 
-app.get('/payments/:bank', async(req, res)=>{
-  const id = req.params.bank;
-  const query = {bank_account : id}
-  const result = await PaymentCollection.find(query).toArray();
-  res.send(result) 
-})
+    app.get('/work-records',  async (req, res) => {
+      const result = await WorkSheetCollection.find().toArray();
+      res.send(result);
+    });
 
-app.get('/work-records', async(req, res)=>{
-  const result = await WorkSheetCollection.find().toArray();
-  res.send(result)
-})
+    app.get('/payment/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const result = await PaymentCollection.find(query).toArray();
+      res.send(result);
+    });
 
-app.get('/payment/:email', async(req, res)=>{
-  const email = req.params.email;
-  const query = {email: email};
-  const result = await PaymentCollection.find(query).toArray()
-  res.send(result)
-})
+    // massege get
+    app.get('/message', async(req, res)=>{
+      const result =await messageCollection.find().toArray();
+      res.send(result)
+    })
 
+    app.get('/employees/verified', async (req, res) => {
+      try {
+        const employees = await UserCollection.find({ fired: false }).toArray();
+        res.json(employees);
+      } catch (error) {
+        res.status(500).json({ error: 'Internal Server Error' });
+      }
+    });
 
+    // Authentication
+    const authenticateUser = async (req, res, next) => {
+      try {
+        const { username, password } = req.body;
+        const user = await UserCollection.findOne({ username });
+        if (!user || user.fired || password !== user.password) {
+          return res.status(401).json({ error: 'Invalid credentials' });
+        }
+        req.user = user;
+        next();
+      } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+      }
+    };
 
-// Get all verified employees
+    app.post('/jwt', async (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN, { expiresIn: '365d' });
+      res.cookie('Token', token, cookieOption).send({ success: true });
+    });
 
+    app.post('/logout', async (req, res) => {
+      res.clearCookie('Token', { expires: new Date(0), ...cookieOption }).send({ success: true });
+    });
 
-app.get('/employees/verified', async (req, res) => {
-  try {
-      const employees = await UserCollection.find({ fired: false });
-      res.json(employees);
-  } catch (error) {
-      res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
+    // messagte
+    app.post('/message', async(req, res)=>{
+      const msg = req.body;
+      const result = await messageCollection.insertOne(msg);
+      res.send(result)
+    })
 
-// Promote an employee to HR
-app.post('/employees/makeHR/:id', async (req, res) => {
-  try {
-      await UserCollection.findByIdAndUpdate(req.params.id, { isHR: true });
-      res.status(200).json({ message: 'Employee promoted to HR' });
-  } catch (error) {
-      res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
+    app.post('/employees/makeHR/:id', async (req, res) => {
+      try {
+        await UserCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: { isHR: true } }
+        );
+        res.status(200).json({ message: 'Employee promoted to HR' });
+      } catch (error) {
+        res.status(500).json({ error: 'Internal Server Error' });
+      }
+    });
 
-// Fire an employee
-app.post('/employees/fire/:id', async (req, res) => {
-  try {
-      await UserCollection.findByIdAndUpdate(req.params.id, { fired: true });
-      res.status(200).json({ message: 'Employee fired' });
-  } catch (error) {
-      res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
+    app.post('/employees/fire/:id', async (req, res) => {
+      try {
+        await UserCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: { fired: true } }
+        );
+        res.status(200).json({ message: 'Employee fired' });
+      } catch (error) {
+        res.status(500).json({ error: 'Internal Server Error' });
+      }
+    });
 
-// Adjust employee salary
-app.post('/employees/salary/:id', async (req, res) => {
-  try {
-      await UserCollection.findByIdAndUpdate(req.params.id, { salary: req.body.salary });
-      res.status(200).json({ message: 'Salary updated' });
-  } catch (error) {
-      res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
+    app.post('/employees/salary/:id', async (req, res) => {
+      try {
+        await UserCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: { salary: req.body.salary } }
+        );
+        res.status(200).json({ message: 'Salary updated' });
+      } catch (error) {
+        res.status(500).json({ error: 'Internal Server Error' });
+      }
+    });
 
+    app.get('/varify-employee',  async (req, res) => {
+      const result = await UserCollection.find({ isVerified: true }).toArray();
+      res.send(result);
+    });
 
-// Admin
-app.get('/varify-employee', async(req, res)=>{
-  const result = await UserCollection.find({isVerified: true}).toArray();
-  res.send(result)
-})
-// app.get('/hr', async(req, res)=>{
-//   const result = await UserCollection.find({role: 'HR'}).toArray();
-//   res.send(result)
-// })
+    app.post('/users', async (req, res) => {
+      const user = req.body;
+      const result = await UserCollection.insertOne(user);
+      res.send(result);
+    });
 
+    app.post('/social', async (req, res) => {
+      const user = req.body;
+      const result = await UserCollection.insertOne(user);
+      res.send(result);
+    });
 
+    app.post('/worksheet', async (req, res) => {
+      const work = req.body;
+      const result = await WorkSheetCollection.insertOne(work);
+      res.send(result);
+    });
 
-//  post
-app.post('/users', async(req, res)=>{
-   const user = req.body;
-   const result = await UserCollection.insertOne(user);
-   res.send(result)
-})
-app.post('/social', async(req, res)=>{
-   const user = req.body;
-   const result = await UserCollection.insertOne(user);
-   res.send(result)
-})
-
-app.post('/worksheet', async(req,res)=>{
-   const work = req.body;
-   const result = await WorkSheetCollection.insertOne(work);
-   console.log(result)
-   res.send(result)
-})
-
-// payment post
-app.post('/Postpayments', async(req, res)=>{
-  const query =req.body;
-  const result  = await PaymentCollection.insertOne(query);
-  res.send(result)
-})
+    app.post('/Postpayments', async (req, res) => {
+      const query = req.body;
+      const result = await PaymentCollection.insertOne(query);
+      res.send(result);
+    });
 
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+  } catch (error) {
+    console.error(error);
   }
 }
 run().catch(console.dir);
 
-
-
-
-app.listen(port, ()=>{
-    console.log(`server running on ${port}`)
-})
-
-// EmployeeManagement
-// aIR4fjdszVfc52h6
+app.listen(port, () => {
+  console.log(`Server running on ${port}`);
+});
