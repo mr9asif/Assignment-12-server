@@ -9,7 +9,7 @@ const port = process.env.PORT || 4000;
 const app = express();
 
 app.use(cors({
-  origin: ['http://localhost:5174', 'http://localhost:5173'],
+  origin: ['http://localhost:5174', 'http://localhost:5173','https://graceful-daifuku-1e1460.netlify.app'],
   credentials: true
 }));
 app.use(express.json());
@@ -49,7 +49,7 @@ const VerifyToken = async (req, res, next) => {
 
 async function run() {
   try {
-    await client.connect();
+   
 
     const ServiceCollection = client.db('EmployeeManagement').collection('Services');
     const UserCollection = client.db('EmployeeManagement').collection('Users');
@@ -104,6 +104,7 @@ async function run() {
     app.get('/users/:email', async (req, res) => {
       try {
         const email = req.params.email;
+        console.log(email)
         const user = await UserCollection.findOne({ email });
         if (user) {
           res.send(user);
@@ -237,10 +238,33 @@ async function run() {
     };
 
     app.post('/jwt', async (req, res) => {
-      const user = req.body;
-      const token = jwt.sign(user, process.env.ACCESS_TOKEN, { expiresIn: '365d' });
-      res.cookie('Token', token, cookieOption).send({ success: true });
+      try {
+        const { email } = req.body;
+    
+        // Retrieve user information from the database based on the email
+        const user = await UserCollection.findOne({ email });
+       console.log('user', user)
+       if(user.fired){
+         return res.status(403).json({error: 'you are fired'})
+       }
+        if (!user) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+    
+        // Now you have access to the user object, including the 'fired' property
+        console.log('User:', user);
+    
+        // Generate JWT token
+        const token = jwt.sign(user, process.env.ACCESS_TOKEN, { expiresIn: '365d' });
+        
+        // Set JWT token in cookie and send response
+        res.cookie('Token', token, cookieOption).send({ success: true });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal Server Error' });
+      }
     });
+    
 
     app.post('/logout', async (req, res) => {
       res.clearCookie('Token', { expires: new Date(0), ...cookieOption }).send({ success: true });
@@ -276,6 +300,36 @@ async function run() {
         res.status(500).json({ error: 'Internal Server Error' });
       }
     });
+
+    // -----------------
+    app.post('/login', async (req, res) => {
+      const { email, password } = req.body;
+    
+      try {
+        const user = await UserCollection.findOne({ email: email });
+        console.log(user)
+    
+        if (!user) {
+          return res.status(403).json({ message: 'Invalid Email or Password' });
+        }
+    
+        // else if (user.fired) {
+        //   return res.status(403).json({ message: 'You are not allowed to log in' });
+        // }
+    
+        else if (user.password !== password) {
+          return res.status(403).json({ message: 'Invalid Email or Password' });
+        }
+    
+        // Authentication successful
+        res.status(200).json({ message: 'Login successful' });
+      } catch (error) {
+        console.error('Error in /login:', error);
+        res.status(500).json({ message: 'Server Error' });
+      }
+    });
+    
+    // ---------
 
     app.post('/employees/salary/:id', async (req, res) => {
       try {
