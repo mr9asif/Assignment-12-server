@@ -9,7 +9,7 @@ const port = process.env.PORT || 4000;
 const app = express();
 
 app.use(cors({
-  origin: ['http://localhost:5174', 'http://localhost:5173','https://graceful-daifuku-1e1460.netlify.app'],
+  origin: ['http://localhost:5174', 'http://localhost:5173','https://thunderous-brioche-852547.netlify.app'],
   credentials: true
 }));
 app.use(express.json());
